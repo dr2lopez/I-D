@@ -59,11 +59,7 @@ informative:
 
 --- abstract
 
-This memo proposes a profile of the ACME protocol that allows a domain name owner to delegate to a third party control over a certificate that bears one or more names in that domain.
-
-Specifically, the third party generates a key-pair and requests issuance of a "delegated" certificate to the owner of that domain name using the ACME profile described in this document.  The domain name owner, acting on behalf of the third party, requests an ACME CA to issue a STAR certificate that binds the "delegated" name to the public key provided by the third party.  After successfully completing the required authorizations, the domain name owner forwards the issued STAR certificate URL to the third party that regularly downloads it from the ACME CA.
-
-A primary use case is that of a CDN (the third party) terminating TLS sessions on behalf of a content provider (the domain name owner).  The presented mechanism allows the domain name owner to retain control over the delegation and revoke it at any time by cancelling the associated STAR certificate renewal with the ACME CA.
+This memo proposes a profile of the ACME protocol that allows a domain name owner to delegate to a third party control over a certificate that bears one or more names in that domain.  A primary use case is that of a CDN (the third party) terminating TLS sessions on behalf of a content provider (the domain name owner).  The presented mechanism allows the domain name owner to retain control over the delegation and revoke it at any time by cancelling the associated STAR certificate renewal with the ACME CA.  Another key property of this mechanism is it doesn't require any modification to the deployed TLS ecosystem.
 
 --- middle
 
@@ -75,7 +71,7 @@ A content provider (referred to in this document as Domain Name Owner, DNO, or m
 
 This document describes a profile of the ACME protocol that allows the NDC to request the IdO, acting as a profiled ACME server, a certificate for a delegated identity - i.e., one belonging to the IdO.  The IdO then uses the ACME protocol (with the extensions described in {{I-D.ietf-acme-star}}) to request issuance of a STAR certificate for the same delegated identity.  The generated short-term certificate is automatically renewed by the ACME Certification Authority (CA) {{I-D.ietf-acme-acme}}, routinely fetched by the NDC and used to terminate HTTPS connections in lieu of the IdO.  The IdO can end the delegation at any time by simply instructing the CA to stop the automatic renewal and letting the certificate expire shortly thereafter.
 
-In case the delegated identity is a domain name, this document also allows the NDC to instruct the DNO on the CNAME mappings that need to be installed in the DNO's DNS to enable the aliasing of the delegated name.
+In case the delegated identity is a domain name, this document also provides a way for the NDC to inform the DNO about the CNAME mappings that need to be installed in the DNO's DNS to enable the aliasing of the delegated name, thus allowing the complete name delegation workflow to be handled using a single interface.
 
 ## Terminology
 
@@ -128,7 +124,7 @@ Note that even if the IdO implements the ACME server role, it is not acting as a
 
 The high level end to end flow is described in {{fig-endtoend}}.
 
-The interaction between the NDC and the IdO (on the right) is governed by the profiled ACME workflow detailed in {{sec-profile}}.  On the left, the interaction between the IdO and the CA is an ACME STAR run.
+The interaction between the NDC and the IdO (on the right hand side) is governed by the profiled ACME workflow detailed in {{sec-profile}}.  On the left, the interaction between the IdO and the CA is ruled by ACME STAR {{I-D.ietf-acme-star}}.
 
 ~~~
      NDC                      IdO                   CA
@@ -163,12 +159,13 @@ The interaction between the NDC and the IdO (on the right) is governed by the pr
 {: #sec-profile}
 
 ### Order Object on the NDC-IdO side
+{: #sec-profile-ndc-to-ido}
 
 The Order object created by the NDC:
 
 - MUST contain identifiers with the new "delegated" field set to true;
-- In case the identifier type is "dns", it MAY contain a "cname" field with the alias of the identifier in the NDC domain.  This field is used by the IdO to create the DNS aliasing needed to redirect the resolvers to the delegated entity.
 - MUST NOT contain the notBefore and notAfter fields;
+- In case the identifier type is "dns", it MAY contain a "cname" field with the alias of the identifier in the NDC domain.  This field is used by the IdO to create the DNS aliasing needed to redirect the resolvers to the delegated entity.
 
 ~~~
    POST /acme/new-order HTTP/1.1
@@ -223,8 +220,10 @@ The Order object that is created on the IdO:
 ~~~
 
 When the validation of the identifiers has been successfully completed and the certificate has been issued by the CA, the IdO:
-- MUST set its Order resource status to "valid";
-- MUST NOT add a "certificate" field and instead add a new "linked-order" key with the URL of the corresponding STAR Order.
+
+- MUST move its Order resource status to "valid";
+- MUST NOT add a "certificate" field;
+- MUST add a new "linked-order" key with the URL of the corresponding STAR Order.
 
 The latter includes the renewal timers needed by the NDC to inform its certificate reload logics.
 
@@ -250,12 +249,11 @@ The latter includes the renewal timers needed by the NDC to inform its certifica
    }
 ~~~
 
-Note that at this point, the IdO can also add the CNAME records to its zone.
-
+Note that at this point in the flow, the IdO can add the CNAME records to its zone.
 
 ### Order Object on the IdO-CA side
 
-The Order from the IdO to the ACME CA SHOULD strip the "delegated" and "cname" attributes present in the twin Order from the NDC, and MUST be contain the necessary STAR extensions.
+The Order from the IdO to the ACME CA SHOULD strip the "delegated" and "cname" attributes present in the twin Order from the NDC ({{sec-profile-ndc-to-ido}}), and MUST contain the necessary STAR extensions.
 
 # CDNI Use Cases
 
@@ -271,7 +269,10 @@ In other cases, a content owner (DNO) delegates some domains to a large CDN (uCD
 
 The STAR protocol does not prevent this use case, although there is no special support for it: uCDN could forward requests from dCDN to DNO, and forward responses back to dCDN.  Whether such proxying is allowed is governed by policy and contracts between the parties.
 
-One thing that might be necessary at the interface between uCDN and dCDN is a mechanism by which the uCDN can advertise the namespace that is made available to the dCDN to mint its delegated names.
+One thing that might be necessary at the interface between uCDN and dCDN is a mechanism by which the uCDN can advertise:
+
+- The namespace that is made available to the dCDN to mint its delegated names;
+- The policy for creating the key material (allowed algorithms, minimum key lenghts, key usage, etc.) that the dCDN needs to satisfy.
 
 # Security Considerations
 
